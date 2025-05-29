@@ -61,75 +61,103 @@ const PetProfileScreen = ({navigation}) => {
   const [showBreedDropdown, setShowBreedDropdown] = useState(false);
   const [isOtherBreed, setIsOtherBreed] = useState(false);
 
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        const token = await AsyncStorage.getItem('userToken');
+        if (token) {
+          setUserToken(token);
+          await fetchPets(token);
+        }
+      } catch (error) {
+        console.error('Error loading initial data:', error);
+        setError('Failed to load pets');
+      }
+    };
+
+    loadInitialData();
+  }, []); // Empty dependency array to run once on mount
+
   const fetchPets = useCallback(async (token) => {
+    console.log('[Pets Debug] Fetching pets...');
     try {
       setLoading(true);
       const response = await fetch(API_URL, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
-        },
+          'Content-Type': 'application/json'
+        }
       });
+
+      console.log('[Pets Debug] Response status:', response.status);
 
       if (!response.ok) {
         throw new Error(`Failed to fetch pets: ${response.status}`);
       }
 
       const data = await response.json();
+      console.log('[Pets Debug] Fetched pets:', data);
+      
       setPets(data);
+      if (data.length > 0) {
+        setCurrentPetIndex(0);
+        setCurrentCatId(data[0].id);
+        setCurrentPet(data[0]);
+      }
       setError(null);
     } catch (err) {
-      console.error('Error fetching pets:', err);
+      console.error('[Pets Debug] Error:', err);
       setError('Failed to load pet information');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Update the checkRecognitionStatus function
-  const checkRecognitionStatus = async () => {
-    try {
-      const status = await AsyncStorage.getItem('recognitionCompleted');
-      const deviceRecognition = await AsyncStorage.getItem('deviceRecognition');
-      const currentDeviceId = '$bc:f6:c1:98:4a:3a';
+const checkRecognitionStatus = async () => {
+  try {
+    const status = await AsyncStorage.getItem('recognitionCompleted');
+    console.log('[Recognition Debug] Current status from storage:', status);
 
-      // If recognition was previously completed, set the state
-      if (status === 'true') {
-        setRecognitionCompleted(true);
-        return; // Exit early if recognition was completed
-      }
-
-      // Only show popup if recognition not completed
-      if (pets.length > 1 && !status) {
-        setShowRecognitionPopup(true);
-      }
-    } catch (error) {
-      console.error('Error checking recognition status:', error);
+    if (status === 'true') {
+      setRecognitionCompleted(true);
+      return;
     }
-  };
 
-  useEffect(() => {
-    const loadTokenAndPets = async () => {
+    // Only show popup if multiple cats and recognition not done
+    if (pets.length > 1) {
+      console.log('[Recognition Debug] Multiple cats detected, showing popup');
+      setShowRecognitionPopup(true);
+    }
+  } catch (error) {
+    console.error('Error checking recognition status:', error);
+  }
+};
+
+
+// Also add this useEffect to monitor pets changes:
+useEffect(() => {
+  // Only check recognition status when pets array changes and has more than 1 pet
+  if (pets.length > 1 && !loading) {
+    const checkAndShowPopup = async () => {
       try {
-        const token = await AsyncStorage.getItem('userToken');
-        setUserToken(token);
-        await checkRecognitionStatus();
-        if (token) {
-          await fetchPets(token);
-        } else {
-          setLoading(false);
-          setError('Not authenticated. Please log in.');
+        const status = await AsyncStorage.getItem('recognitionCompleted');
+        console.log('[Recognition Debug] Pets changed, status:', status, 'pets count:', pets.length);
+        
+        if (status !== 'true') {
+          // Small delay to ensure component is fully rendered
+          setTimeout(() => {
+            setShowRecognitionPopup(true);
+          }, 500);
         }
-      } catch (err) {
-        console.error('Error loading token or pets:', err);
-        setError('Failed to load pet information');
-        setLoading(false);
+      } catch (error) {
+        console.error('Error in pets change effect:', error);
       }
     };
-
-    loadTokenAndPets();
-  }, [fetchPets]);
-
+    
+    checkAndShowPopup();
+  }
+}, [pets.length, loading]);
   const handlePickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     
@@ -316,10 +344,23 @@ const handleSaveNewPet = async () => {
     const updatedPets = [...pets, createdPet];
     setPets(updatedPets);
     setCurrentPetIndex(updatedPets.length - 1);
-    
-   
     setModalVisible(false);
-    Alert.alert('Success', `${createdPet.name} has been added successfully!`);
+    
+    // Show success alert
+    Alert.alert('Success', `${createdPet.name} has been added successfully!`, [
+      {
+        text: 'OK',
+        onPress: async () => {
+          // Check if we should show recognition popup after adding new cat
+          if (updatedPets.length > 1) {
+            const status = await AsyncStorage.getItem('recognitionCompleted');
+            if (status !== 'true') {
+              setShowRecognitionPopup(true);
+            }
+          }
+        }
+      }
+    ]);
     
   } catch (err) {
     console.error('Error creating pet:', err);
@@ -364,9 +405,9 @@ const handleSaveNewPet = async () => {
   // Update the handleStartRecognition function
   const handleStartRecognition = () => {
     setShowRecognitionPopup(false);
-    const deviceId = '$bc:f6:c1:98:4a:3a';
+    const deviceId = 'bc:f6:c1:98:4a:3a';
     
-    navigation.navigate('CatRecognition', { 
+    navigation.navigate('CatRecognitionScreen', { 
       cats: pets,
       deviceId: deviceId,
       onComplete: async () => {
@@ -381,12 +422,14 @@ const handleSaveNewPet = async () => {
     });
   };
 
-  // Add useEffect to show popup when multiple cats are detected
   useEffect(() => {
-    if (pets.length > 1 && !recognitionCompleted) {
-      checkRecognitionStatus();
-    }
-  }, [pets]); // Remove recognitionCompleted from dependencies
+    console.log('Recognition Debug:', {
+      petsLength: pets.length,
+      recognitionCompleted,
+      showRecognitionPopup,
+      recognitionStatus: AsyncStorage.getItem('recognitionCompleted')
+    });
+  }, [pets.length, recognitionCompleted, showRecognitionPopup]);
 
   const handleLogout = async () => {
     try {

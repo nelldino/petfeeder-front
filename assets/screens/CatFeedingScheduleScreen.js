@@ -24,7 +24,7 @@ const CatFeedingSchedule = ({ navigation, route }) => {
   const [portion, setPortion] = useState(150);
   const [selectedTime, setSelectedTime] = useState('07:00');
   const [loading, setLoading] = useState(false);
-  const deviceId = '$bc:f6:c1:98:4a:3a';
+  const deviceId = 'bc:f6:c1:98:4a:3a';
   const selectedCat = route.params?.cat;
 
   const decreasePortion = () => {

@@ -69,7 +69,7 @@ const SmartPetFeederScreen = ({ navigation }) => {
 
     try {
       setIsFeeding(true);
-      const deviceId = '$bc:f6:c1:98:4a:3a';
+      const deviceId = 'bc:f6:c1:98:4a:3a';
       
       const response = await axios.post(
         `${API_URL}/pet-feeder/${deviceId}/cats/${selectedCat.id}/feed`,
@@ -146,8 +146,11 @@ const SmartPetFeederScreen = ({ navigation }) => {
   };
 
   const fetchContainerWeight = async () => {
+    const deviceId = 'bc:f6:c1:98:4a:3a';
+    console.log(`[Weight Debug] Starting weight fetch for device: ${deviceId}`);
+    
     try {
-      const deviceId = '$bc:f6:c1:98:4a:3a';
+      console.log('[Weight Debug] Making API request...');
       const response = await axios.get(
         `${API_URL}/pet-feeder/${deviceId}/weight`,
         {
@@ -158,9 +161,26 @@ const SmartPetFeederScreen = ({ navigation }) => {
         }
       );
       
-      setContainerWeight(response.data.weight);
+      console.log('[Weight Debug] API Response:', {
+        status: response.status,
+        data: response.data,
+        timestamp: new Date().toISOString()
+      });
+
+      if (response.data.weight !== undefined) {
+        console.log(`[Weight Debug] Weight value received: ${response.data.weight}g`);
+        setContainerWeight(response.data.weight);
+      } else {
+        console.warn('[Weight Debug] No weight value in response');
+        setContainerWeight(null);
+      }
     } catch (error) {
-      console.error('Error fetching container weight:', error);
+      console.error('[Weight Debug] Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        timestamp: new Date().toISOString()
+      });
       setContainerWeight(null);
     }
   };

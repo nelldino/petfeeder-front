@@ -50,12 +50,12 @@ function AppNavigator() {
         <Stack.Screen name="FeedingHistoryScreen" component={FeedingHistoryScreen}/>
         <Stack.Screen name="PetProfileScreen" component={PetProfileScreen}/>
         <Stack.Screen 
-          name="CatRecognition" 
+          name="CatRecognitionScreen" 
           component={CatRecognitionScreen}
           options={{ headerShown: false }}
         />
         <Stack.Screen 
-          name="ModelTraining" 
+          name="ModelTrainingScreen" 
           component={ModelTrainingScreen}
           options={{ headerShown: false }}
         />

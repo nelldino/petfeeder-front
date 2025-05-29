@@ -126,15 +126,46 @@ const ScheduleScreen = ({ navigation }) => {
     }
   };
 
-  const toggleSwitch = () => {
+  const toggleSwitch = async () => {
     const newValue = !scheduleEnabled;
-    setScheduleEnabled(newValue);
     
-    Animated.timing(toggleAnim, {
-      toValue: newValue ? 1 : 0,
-      duration: 200,
-      useNativeDriver: false,
-    }).start();
+    try {
+      const response = await axios.patch(
+        `${API_URL}/pet-feeder/cats/${selectedCatId}/toggle`,
+        {
+          isActive: newValue
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${userToken}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (response.data.success) {
+        setScheduleEnabled(newValue);
+        Animated.timing(toggleAnim, {
+          toValue: newValue ? 1 : 0,
+          duration: 200,
+          useNativeDriver: false,
+        }).start();
+
+        // Show feedback to user
+        Alert.alert(
+          'Success', 
+          `Feeding schedule ${newValue ? 'activated' : 'deactivated'} for ${cats.find(cat => cat.id === selectedCatId)?.name}`
+        );
+      }
+    } catch (error) {
+      console.error('Error toggling schedules:', error);
+      Alert.alert(
+        'Error',
+        error.response?.data?.message || 'Failed to toggle feeding schedule'
+      );
+      // Revert the switch if there was an error
+      setScheduleEnabled(!newValue);
+    }
   };
 
   const openAddModal = () => {
@@ -193,11 +224,11 @@ const ScheduleScreen = ({ navigation }) => {
         );
       } else {
         // Create new schedule
-        const deviceId = meals.length > 0 ? meals[0].deviceId : '$bc:f6:c1:98:4a:3a';
+        const deviceId = meals.length > 0 ? meals[0].deviceId : 'bc:f6:c1:98:4a:3a';
         console.log('Creating new schedule with device:', deviceId);
         
         const response = await axios.post(
-          `${API_URL}/pet-feeder/${deviceId}/cats/${selectedCatId}/schedule`,
+          `${API_URL}/pet-feeder/bc:f6:c1:98:4a:3a/cats/${selectedCatId}/schedule`,
           scheduleRequest,
           config
         );
@@ -278,6 +309,26 @@ const ScheduleScreen = ({ navigation }) => {
       ]
     );
   };
+
+  // Add this to useEffect to fetch initial schedule state
+  useEffect(() => {
+    if (selectedCatId) {
+      fetchSchedules();
+      // Fetch initial schedule state
+      axios.get(`${API_URL}/cats/${selectedCatId}/schedule-state`, {
+        headers: {
+          'Authorization': `Bearer ${userToken}`
+        }
+      })
+      .then(response => {
+        setScheduleEnabled(response.data.isActive);
+        toggleAnim.setValue(response.data.isActive ? 1 : 0);
+      })
+      .catch(error => {
+        console.error('Error fetching schedule state:', error);
+      });
+    }
+  }, [selectedCatId]);
 
   if (loading) {
     return (

@@ -22,14 +22,14 @@ const API_URL = Platform.select({
 const ModelTrainingScreen = ({ navigation, route }) => {
   const { userToken } = useCat();
   const [isTraining, setIsTraining] = useState(false);
-  const deviceId = '$bc:f6:c1:98:4a:3a';
+  const deviceId = 'bc:f6:c1:98:4a:3a';
 
   const startTraining = async () => {
     try {
       setIsTraining(true);
       
       const response = await axios.post(
-        `${API_URL}/pet-feeder/${deviceId}/trainModel`,
+        `${API_URL}/pet-feeder/bc:f6:c1:98:4a:3a/trainModel`,
         {},
         {
           headers: {

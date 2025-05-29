@@ -25,7 +25,7 @@ const CatRecognitionScreen = ({ navigation, route }) => {
   const [currentCatIndex, setCurrentCatIndex] = useState(0);
   const [isRecognizing, setIsRecognizing] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
-  const deviceId = '$bc:f6:c1:98:4a:3a';
+  const deviceId = 'bc:f6:c1:98:4a:3a';
 
   const startRecognition = async () => {
     const currentCat = cats[currentCatIndex];
@@ -40,7 +40,7 @@ const CatRecognitionScreen = ({ navigation, route }) => {
       }, 1000);
 
       const response = await axios.post(
-        `${API_URL}/pet-feeder/${deviceId}/cats/${currentCat.id}/sendImage`,
+        `${API_URL}/pet-feeder/bc:f6:c1:98:4a:3a/cats/${currentCat.id}/sendImage`,
         {},
         {
           headers: {
@@ -69,7 +69,7 @@ const CatRecognitionScreen = ({ navigation, route }) => {
           if (route.params?.onComplete) {
             await route.params.onComplete();
           }
-          navigation.replace('ModelTraining');
+          navigation.replace('ModelTrainingScreen');
         }
       }
     } catch (error) {
