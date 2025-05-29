@@ -116,48 +116,34 @@ const PetProfileScreen = ({navigation}) => {
 
 const checkRecognitionStatus = async () => {
   try {
+    console.log('[Recognition Debug] Checking status, pets count:', pets.length);
     const status = await AsyncStorage.getItem('recognitionCompleted');
-    console.log('[Recognition Debug] Current status from storage:', status);
+    console.log('[Recognition Debug] Current status:', status);
 
     if (status === 'true') {
+      console.log('[Recognition Debug] Recognition already completed');
       setRecognitionCompleted(true);
       return;
     }
 
-    // Only show popup if multiple cats and recognition not done
+  
     if (pets.length > 1) {
       console.log('[Recognition Debug] Multiple cats detected, showing popup');
       setShowRecognitionPopup(true);
     }
   } catch (error) {
-    console.error('Error checking recognition status:', error);
+    console.error('[Recognition Debug] Error:', error);
   }
 };
 
-
-// Also add this useEffect to monitor pets changes:
+// Update the useEffect that monitors pets
 useEffect(() => {
-  // Only check recognition status when pets array changes and has more than 1 pet
-  if (pets.length > 1 && !loading) {
-    const checkAndShowPopup = async () => {
-      try {
-        const status = await AsyncStorage.getItem('recognitionCompleted');
-        console.log('[Recognition Debug] Pets changed, status:', status, 'pets count:', pets.length);
-        
-        if (status !== 'true') {
-          // Small delay to ensure component is fully rendered
-          setTimeout(() => {
-            setShowRecognitionPopup(true);
-          }, 500);
-        }
-      } catch (error) {
-        console.error('Error in pets change effect:', error);
-      }
-    };
-    
-    checkAndShowPopup();
+  if (pets.length > 1) {
+    console.log('[Recognition Debug] Multiple cats detected in useEffect');
+    checkRecognitionStatus();
   }
-}, [pets.length, loading]);
+}, [pets.length]);
+
   const handlePickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     
