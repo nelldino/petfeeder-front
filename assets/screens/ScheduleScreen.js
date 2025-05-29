@@ -19,9 +19,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import { useCat } from '../../contexts/CatContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_URL = Platform.select({
-  android: 'http://10.0.2.2:3333',
+  android: 'http://192.168.100.16:3333',
   ios: 'http://localhost:3333',
   default: 'http://localhost:3333'
 });
@@ -42,6 +43,9 @@ const ScheduleScreen = ({ navigation }) => {
   const [cats, setCats] = useState([]);
   const [selectedCatId, setSelectedCatId] = useState(currentCatId);
   const [showCatDropdown, setShowCatDropdown] = useState(false);
+
+  // Add new state for tracking toggle states per cat
+  const [catToggleStates, setCatToggleStates] = useState({});
 
   useEffect(() => {
     fetchCats();
@@ -67,7 +71,8 @@ const ScheduleScreen = ({ navigation }) => {
         `${API_URL}/pet-feeder/cats/${selectedCatId}/schedules`,
         {
           headers: {
-            'Authorization': `Bearer ${userToken}`
+            'Authorization': `Bearer ${userToken}`,
+            'Content-Type': 'application/json'
           }
         }
       );
@@ -94,11 +99,20 @@ const ScheduleScreen = ({ navigation }) => {
     }
   };
 
+  // Update the fetchCats function
   const fetchCats = async () => {
     if (!userToken) {
-      console.log('No auth token available');
-      navigation.navigate('Login');
-      return;
+      console.log('[Auth Debug] No auth token, checking if expired');
+      const token = await AsyncStorage.getItem('userToken');
+      if (!token) {
+        console.log('[Auth Debug] No stored token, redirecting to SignUpScreen');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'SignUpScreen' }],
+        });
+        return;
+      }
+      return; // Don't redirect if we have a stored token
     }
 
     try {
@@ -109,27 +123,46 @@ const ScheduleScreen = ({ navigation }) => {
         }
       });
       
-      console.log('Cats fetched successfully:', response.data);
+      console.log('[Cats Debug] Cats fetched successfully:', response.data);
       setCats(response.data);
       
       if (!selectedCatId && response.data.length > 0) {
         setSelectedCatId(response.data[0].id);
       }
     } catch (error) {
-      console.error('Error fetching cats:', error);
+      console.error('[Auth Debug] Error:', error?.response?.status);
+      // Only redirect on actual auth errors
       if (error.response?.status === 401) {
-        console.log('Token expired or invalid, redirecting to login');
-        navigation.navigate('Login');
+        console.log('[Auth Debug] Token expired, checking refresh token');
+        // Add your token refresh logic here if needed
+        await AsyncStorage.removeItem('userToken');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'SignUpScreen' }],
+        });
       } else {
         Alert.alert('Error', 'Failed to load cats');
       }
     }
   };
 
+  // Add this function at component level
+  const saveToggleState = async (catId, isEnabled) => {
+    try {
+      const key = `toggleState_${catId}`;
+      await AsyncStorage.setItem(key, JSON.stringify(isEnabled));
+      console.log('[Toggle Debug] Saved state for cat:', catId, isEnabled);
+    } catch (error) {
+      console.error('[Toggle Debug] Error saving toggle state:', error);
+    }
+  };
+
+  // Update the toggleSwitch function
   const toggleSwitch = async () => {
     const newValue = !scheduleEnabled;
     
     try {
+      console.log('[Toggle Debug] Toggling schedules for cat:', selectedCatId);
       const response = await axios.patch(
         `${API_URL}/pet-feeder/cats/${selectedCatId}/toggle`,
         {
@@ -144,27 +177,35 @@ const ScheduleScreen = ({ navigation }) => {
       );
 
       if (response.data.success) {
+        // Update states and save to storage
         setScheduleEnabled(newValue);
+        setCatToggleStates(prev => ({
+          ...prev,
+          [selectedCatId]: newValue
+        }));
+        
+        // Save to AsyncStorage
+        await saveToggleState(selectedCatId, newValue);
+        
         Animated.timing(toggleAnim, {
           toValue: newValue ? 1 : 0,
           duration: 200,
           useNativeDriver: false,
         }).start();
 
-        // Show feedback to user
         Alert.alert(
           'Success', 
-          `Feeding schedule ${newValue ? 'activated' : 'deactivated'} for ${cats.find(cat => cat.id === selectedCatId)?.name}`
+          `Feeding schedule ${newValue ? 'activated' : 'paused'} for ${
+            cats.find(cat => cat.id === selectedCatId)?.name
+          }`
         );
       }
     } catch (error) {
-      console.error('Error toggling schedules:', error);
+      console.error('[Toggle Debug] Toggle failed:', error);
       Alert.alert(
         'Error',
         error.response?.data?.message || 'Failed to toggle feeding schedule'
       );
-      // Revert the switch if there was an error
-      setScheduleEnabled(!newValue);
     }
   };
 
@@ -228,7 +269,7 @@ const ScheduleScreen = ({ navigation }) => {
         console.log('Creating new schedule with device:', deviceId);
         
         const response = await axios.post(
-          `${API_URL}/pet-feeder/bc:f6:c1:98:4a:3a/cats/${selectedCatId}/schedule`,
+          `${API_URL}/pet-feeder/${deviceId}/cats/${selectedCatId}/schedule`,
           scheduleRequest,
           config
         );
@@ -310,25 +351,81 @@ const ScheduleScreen = ({ navigation }) => {
     );
   };
 
-  // Add this to useEffect to fetch initial schedule state
+  // Update the useEffect that handles cat selection
   useEffect(() => {
     if (selectedCatId) {
       fetchSchedules();
-      // Fetch initial schedule state
-      axios.get(`${API_URL}/cats/${selectedCatId}/schedule-state`, {
+      
+      // Get toggle state for selected cat
+      axios.get(`${API_URL}/pet-feeeder/cats/${selectedCatId}/schedules`, {
         headers: {
           'Authorization': `Bearer ${userToken}`
         }
       })
       .then(response => {
-        setScheduleEnabled(response.data.isActive);
-        toggleAnim.setValue(response.data.isActive ? 1 : 0);
+        const isActive = response.data.isActive ?? false;
+        
+        // Update both states
+        setScheduleEnabled(isActive);
+        setCatToggleStates(prev => ({
+          ...prev,
+          [selectedCatId]: isActive
+        }));
+        
+        toggleAnim.setValue(isActive ? 1 : 0);
       })
       .catch(error => {
-        console.error('Error fetching schedule state:', error);
+        // console.error('[Schedule Debug] Error fetching schedule state:', error);
       });
     }
   }, [selectedCatId]);
+
+  // Add this function to load saved toggle states
+  const loadSavedToggleStates = async () => {
+    try {
+      const savedStates = {};
+      for (const cat of cats) {
+        const key = `toggleState_${cat.id}`;
+        const saved = await AsyncStorage.getItem(key);
+        if (saved !== null) {
+          savedStates[cat.id] = JSON.parse(saved);
+        }
+      }
+      setCatToggleStates(savedStates);
+      
+      // Set initial state for selected cat
+      if (selectedCatId && savedStates[selectedCatId] !== undefined) {
+        setScheduleEnabled(savedStates[selectedCatId]);
+        toggleAnim.setValue(savedStates[selectedCatId] ? 1 : 0);
+      }
+    } catch (error) {
+      console.error('[Toggle Debug] Error loading saved states:', error);
+    }
+  };
+
+  // Update the useEffect that loads initial data
+  useEffect(() => {
+    if (cats.length > 0) {
+      loadSavedToggleStates();
+    }
+  }, [cats]);
+
+  // Update the cat selection handler
+  const handleCatSelect = async (catId) => {
+    setSelectedCatId(catId);
+    setShowCatDropdown(false);
+    
+    // Load saved toggle state for selected cat
+    const key = `toggleState_${catId}`;
+    try {
+      const saved = await AsyncStorage.getItem(key);
+      const savedState = saved ? JSON.parse(saved) : true; // Default to true if no saved state
+      setScheduleEnabled(savedState);
+      toggleAnim.setValue(savedState ? 1 : 0);
+    } catch (error) {
+      console.error('[Toggle Debug] Error loading toggle state:', error);
+    }
+  };
 
   if (loading) {
     return (
@@ -342,6 +439,11 @@ const ScheduleScreen = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      
+      {/* Floating Add Button */}
+      <TouchableOpacity style={styles.floatingAddButton} onPress={openAddModal}>
+        <Ionicons name="add" size={28} color="#fff" />
+      </TouchableOpacity>
       
       <View style={styles.content}>
         <Text style={styles.title}>Schedule</Text>
@@ -375,10 +477,7 @@ const ScheduleScreen = ({ navigation }) => {
                       styles.catItem,
                       selectedCatId === cat.id && styles.selectedCatItem
                     ]}
-                    onPress={() => {
-                      setSelectedCatId(cat.id);
-                      setShowCatDropdown(false);
-                    }}
+                    onPress={() => handleCatSelect(cat.id)}
                   >
                     <Text style={[
                       styles.catItemText,
@@ -438,22 +537,16 @@ const ScheduleScreen = ({ navigation }) => {
                 </View>
                 <Ionicons name="chevron-forward" size={20} color="#ccc" />
               </TouchableOpacity>
-            )
-            }
+            )}
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
                 <Text style={styles.emptyText}>No scheduled meals yet</Text>
-                <Text style={styles.emptySubText}>Tap "Add meal" to create your first schedule</Text>
+                <Text style={styles.emptySubText}>Tap the + button to create your first schedule</Text>
               </View>
             }
             showsVerticalScrollIndicator={false}
           />
         </View>
-
-        <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
-          <Ionicons name="add" size={20} color="#FF4500" />
-          <Text style={styles.addMeal}>Add meal</Text>
-        </TouchableOpacity>
 
         <Modal transparent visible={modalVisible} animationType="slide">
           <View style={styles.modalContainer}>
@@ -553,7 +646,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: '#888',
     fontSize: 16,
-    marginBottom: 5,
+    marginBottom: 20,
   },
   emptySubText: {
     textAlign: 'center',
@@ -567,7 +660,6 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: 20,
-    paddingBottom: 70,
   },
   title: { 
     fontSize: 24, 
@@ -576,9 +668,27 @@ const styles = StyleSheet.create({
     paddingTop: 50, 
     color: '#333' 
   },
+  // Floating Add Button
+  floatingAddButton: {
+    position: 'absolute',
+    bottom: 80,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#FF4500',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
   catSelectorContainer: {
     marginBottom: 20,
-    zIndex: 1000,
+    zIndex: 999,
     backgroundColor: '#ffffff',
   },
   catSelector: {
@@ -607,7 +717,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     zIndex: 1000,
     maxHeight: 200,
-    overflow: 'hidden', // Prevent content from showing outside borders
+    overflow: 'hidden',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -623,7 +733,6 @@ const styles = StyleSheet.create({
     }),
   },
   dropdownScroll: {
-    // Added style for the ScrollView inside the dropdown
     paddingVertical: 10,
   },
   catItem: {
@@ -686,19 +795,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginTop: 2,
-  },
-  addButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    marginTop: 20,
-  },
-  addMeal: {
-    color: '#FF4500',
-    fontWeight: '600',
-    fontSize: 16,
-    marginLeft: 5,
   },
   modalContainer: {
     flex: 1,

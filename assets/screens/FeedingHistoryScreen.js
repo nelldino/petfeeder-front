@@ -19,7 +19,7 @@ import axios from 'axios';
 import { useFocusEffect } from '@react-navigation/native';
 
 const API_URL = Platform.select({
-  android: 'http://10.0.2.2:3333',
+  android: 'http://192.168.100.16:3333',
   ios: 'http://localhost:3333',
   default: 'http://localhost:3333'
 });

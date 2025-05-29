@@ -23,7 +23,7 @@ const SignUpScreen = () => {
   const navigation = useNavigation();
 
   const API_URL = Platform.select({
-    android: 'http://10.0.2.2:3333/auth/register',
+    android: 'http://192.168.100.16:3333/auth/register',
     ios: 'http://localhost:3333/auth/register',
     default: 'http://localhost:3333/auth/register'
   });

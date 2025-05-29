@@ -30,7 +30,7 @@ const catBreeds = [
 ];
 
 const API_URL = Platform.select({
-  android: 'http://10.0.2.2:3333/cats',
+  android: 'http://192.168.100.16:3333/cats',
   ios: 'http://localhost:3333/cats',
   default: 'http://localhost:3333/cats'
 });
