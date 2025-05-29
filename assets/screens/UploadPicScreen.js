@@ -27,6 +27,7 @@ const UploadPicScreen = ({ route, navigation }) => {
   const [uploadLoading, setUploadLoading] = useState(false);
   const [userToken, setUserToken] = useState(null);
   const [imageError, setImageError] = useState(false);
+  const [selectedCat, setSelectedCat] = useState(null);
 
   useEffect(() => {
     const loadToken = async () => {
@@ -36,6 +37,32 @@ const UploadPicScreen = ({ route, navigation }) => {
     loadToken();
     requestPermissions();
   }, []);
+
+  useEffect(() => {
+    const fetchCatDetails = async () => {
+      if (!catId || !userToken) return;
+
+      try {
+        const response = await fetch(`${API_URL}/cats/${catId}`, {
+          headers: {
+            'Authorization': `Bearer ${userToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch cat details');
+        }
+
+        const catData = await response.json();
+        setSelectedCat(catData);
+      } catch (error) {
+        console.error('Error fetching cat details:', error);
+      }
+    };
+
+    fetchCatDetails();
+  }, [catId, userToken]);
 
   const requestPermissions = async () => {
     if (Platform.OS === 'android') {
@@ -99,15 +126,10 @@ const UploadPicScreen = ({ route, navigation }) => {
         
         if (Platform.OS === 'android') {
           if (uri.startsWith('content://')) {
-       
-          } 
-    
-          else if (uri.startsWith('file://')) {
-       
+            // Handle content URIs if needed
+          } else if (uri.startsWith('file://')) {
             uri = uri.replace(/(file:\/\/)\/+/, '$1/');
-          }
-         
-          else {
+          } else {
             uri = `file://${uri}`;
           }
         }
@@ -121,6 +143,46 @@ const UploadPicScreen = ({ route, navigation }) => {
       setImageError(true);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const uploadImage = async () => {
+    if (!selectedImage) return;
+
+    try {
+      setUploadLoading(true);
+      
+      // Create FormData object
+      const formData = new FormData();
+      formData.append('image', {
+        uri: selectedImage,
+        name: 'cat_image.jpg',
+        type: 'image/jpeg',
+      });
+      formData.append('catId', catId);
+
+      const response = await fetch(`${API_URL}/cats/upload-image`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          'Authorization': `Bearer ${userToken}`,
+        },
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to upload image');
+      }
+
+      Alert.alert('Success', 'Image uploaded successfully!');
+      navigation.navigate('CatFeedingSchedule', { cat: selectedCat });
+    } catch (error) {
+      console.error('Upload error:', error);
+      Alert.alert('Error', error.message || 'Failed to upload image');
+    } finally {
+      setUploadLoading(false);
     }
   };
 
@@ -144,11 +206,24 @@ const UploadPicScreen = ({ route, navigation }) => {
         </View>
       );
     }
+
+    return (
+      <Image
+        source={{ uri: selectedImage }}
+        style={styles.previewImage}
+        onError={handleImageError}
+      />
+    );
   };
 
   const handleSkip = () => {
-    navigation.navigate('CatFeedingScheduleScreen');
+    if (!selectedCat) {
+      Alert.alert('Error', 'Unable to proceed. Please try again.');
+      return;
+    }
+    navigation.navigate('CatFeedingScheduleScreen', { cat: selectedCat });
   };
+
   return (
     <View style={styles.container}>
       <View style={styles.contentContainer}>

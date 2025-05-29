@@ -13,8 +13,10 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useCat } from '../../contexts/CatContext';
 
 const SignUpScreen = () => {
+  const { setUserToken } = useCat();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -53,8 +55,10 @@ const SignUpScreen = () => {
         throw new Error(data.message || 'Registration failed');
       }
 
-
+      // Store token in both AsyncStorage and Context
       await AsyncStorage.setItem('userToken', data.access_token);
+      setUserToken(data.access_token);
+
       navigation.navigate('AddCatScreen');
       
     } catch (error) {
