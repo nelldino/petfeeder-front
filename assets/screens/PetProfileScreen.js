@@ -19,16 +19,29 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import { useCat } from '../../contexts/CatContext';
 
 const API_URL = Platform.select({
-  android: 'http://10.0.2.2:3333/cats',
+  android: 'http://192.168.100.16:3333/cats',
   ios: 'http://localhost:3333/cats',
   default: 'http://localhost:3333/cats'
 });
 
 const DEFAULT_CAT_IMAGE = 'https://www.dreamiestreats.co.uk/sites/g/files/fnmzdf5196/files/2024-07/Cat-paws-1.jpg';
 
+const catBreeds = [
+  "Just a cute cat",
+  "Siamese",
+  "British Shorthair",
+  "Scottish Fold",
+  "Sphynx",
+  "Persian",
+  "Other"
+];
+
 const PetProfileScreen = ({navigation}) => {
+  const { setCurrentCatId, setCurrentPet } = useCat();
+  
   const [loading, setLoading] = useState(true);
   const [saveLoading, setSaveLoading] = useState(false);
   const [pets, setPets] = useState([]);
@@ -43,52 +56,93 @@ const PetProfileScreen = ({navigation}) => {
     imageFile: null
   });
   const [userToken, setUserToken] = useState(null);
+  const [showRecognitionPopup, setShowRecognitionPopup] = useState(false);
+  const [recognitionCompleted, setRecognitionCompleted] = useState(false);
+  const [showBreedDropdown, setShowBreedDropdown] = useState(false);
+  const [isOtherBreed, setIsOtherBreed] = useState(false);
+
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        const token = await AsyncStorage.getItem('userToken');
+        if (token) {
+          setUserToken(token);
+          await fetchPets(token);
+        }
+      } catch (error) {
+        console.error('Error loading initial data:', error);
+        setError('Failed to load pets');
+      }
+    };
+
+    loadInitialData();
+  }, []); // Empty dependency array to run once on mount
 
   const fetchPets = useCallback(async (token) => {
+    console.log('[Pets Debug] Fetching pets...');
     try {
       setLoading(true);
       const response = await fetch(API_URL, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
-        },
+          'Content-Type': 'application/json'
+        }
       });
+
+      console.log('[Pets Debug] Response status:', response.status);
 
       if (!response.ok) {
         throw new Error(`Failed to fetch pets: ${response.status}`);
       }
 
       const data = await response.json();
+      console.log('[Pets Debug] Fetched pets:', data);
+      
       setPets(data);
+      if (data.length > 0) {
+        setCurrentPetIndex(0);
+        setCurrentCatId(data[0].id);
+        setCurrentPet(data[0]);
+      }
       setError(null);
     } catch (err) {
-      console.error('Error fetching pets:', err);
+      console.error('[Pets Debug] Error:', err);
       setError('Failed to load pet information');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    const loadTokenAndPets = async () => {
-      try {
-        const token = await AsyncStorage.getItem('userToken');
-        setUserToken(token);
-        if (token) {
-          await fetchPets(token);
-        } else {
-          setLoading(false);
-          setError('Not authenticated. Please log in.');
-        }
-      } catch (err) {
-        console.error('Error loading token or pets:', err);
-        setError('Failed to load pet information');
-        setLoading(false);
-      }
-    };
+const checkRecognitionStatus = async () => {
+  try {
+    console.log('[Recognition Debug] Checking status, pets count:', pets.length);
+    const status = await AsyncStorage.getItem('recognitionCompleted');
+    console.log('[Recognition Debug] Current status:', status);
 
-    loadTokenAndPets();
-  }, [fetchPets]);
+    if (status === 'true') {
+      console.log('[Recognition Debug] Recognition already completed');
+      setRecognitionCompleted(true);
+      return;
+    }
+
+  
+    if (pets.length > 1) {
+      console.log('[Recognition Debug] Multiple cats detected, showing popup');
+      setShowRecognitionPopup(true);
+    }
+  } catch (error) {
+    console.error('[Recognition Debug] Error:', error);
+  }
+};
+
+// Update the useEffect that monitors pets
+useEffect(() => {
+  if (pets.length > 1) {
+    console.log('[Recognition Debug] Multiple cats detected in useEffect');
+    checkRecognitionStatus();
+  }
+}, [pets.length]);
 
   const handlePickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -276,10 +330,23 @@ const handleSaveNewPet = async () => {
     const updatedPets = [...pets, createdPet];
     setPets(updatedPets);
     setCurrentPetIndex(updatedPets.length - 1);
-    
-   
     setModalVisible(false);
-    Alert.alert('Success', `${createdPet.name} has been added successfully!`);
+    
+    // Show success alert
+    Alert.alert('Success', `${createdPet.name} has been added successfully!`, [
+      {
+        text: 'OK',
+        onPress: async () => {
+          // Check if we should show recognition popup after adding new cat
+          if (updatedPets.length > 1) {
+            const status = await AsyncStorage.getItem('recognitionCompleted');
+            if (status !== 'true') {
+              setShowRecognitionPopup(true);
+            }
+          }
+        }
+      }
+    ]);
     
   } catch (err) {
     console.error('Error creating pet:', err);
@@ -315,9 +382,56 @@ const handleSaveNewPet = async () => {
 
   const switchPet = (index) => {
     setCurrentPetIndex(index);
+    setCurrentCatId(pets[index].id);
+    setCurrentPet(pets[index]);
   };
 
   const currentPet = pets[currentPetIndex];
+
+  // Update the handleStartRecognition function
+  const handleStartRecognition = () => {
+    setShowRecognitionPopup(false);
+    const deviceId = 'bc:f6:c1:98:4a:3a';
+    
+    navigation.navigate('CatRecognitionScreen', { 
+      cats: pets,
+      deviceId: deviceId,
+      onComplete: async () => {
+        try {
+          // Save recognition completion status
+          await AsyncStorage.setItem('recognitionCompleted', 'true');
+          setRecognitionCompleted(true);
+        } catch (error) {
+          console.error('Error saving recognition status:', error);
+        }
+      }
+    });
+  };
+
+  useEffect(() => {
+    console.log('Recognition Debug:', {
+      petsLength: pets.length,
+      recognitionCompleted,
+      showRecognitionPopup,
+      recognitionStatus: AsyncStorage.getItem('recognitionCompleted')
+    });
+  }, [pets.length, recognitionCompleted, showRecognitionPopup]);
+
+  const handleLogout = async () => {
+    try {
+      // Only remove userToken, keep recognitionCompleted status
+      await AsyncStorage.removeItem('userToken');
+      
+      // Navigate to SignIn screen
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'SignUpScreen' }],
+      });
+    } catch (error) {
+      console.error('Error during logout:', error);
+      Alert.alert('Error', 'Failed to logout. Please try again.');
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -434,6 +548,14 @@ const handleSaveNewPet = async () => {
           >
             <Text style={styles.addAnotherButtonText}>+ Add another cat</Text>
           </TouchableOpacity>
+
+          {/* Logout Button */}
+          <TouchableOpacity
+            style={styles.logoutButton}
+            onPress={handleLogout}
+          >
+            <Text style={styles.logoutButtonText}>Logout</Text>
+          </TouchableOpacity>
         </ScrollView>
       )}
 
@@ -474,13 +596,63 @@ const handleSaveNewPet = async () => {
             />
             
             <Text style={styles.modalLabel}>Breed</Text>
-            <TextInput
-              style={styles.modalInput}
-              placeholder="Breed"
-              value={newPet.breed}
-              onChangeText={(text) => setNewPet({...newPet, breed: text})}
-              maxLength={50}
-            />
+            <View style={styles.dropdownContainer}>
+              <TouchableOpacity 
+                style={styles.dropdownButton}
+                onPress={() => setShowBreedDropdown(!showBreedDropdown)}
+                activeOpacity={0.8}
+              >
+                <Text style={newPet.breed ? styles.dropdownSelectedText : styles.dropdownPlaceholderText}>
+                  {newPet.breed || "Select breed"}
+                </Text>
+                <Ionicons 
+                  name={showBreedDropdown ? "chevron-up" : "chevron-down"} 
+                  size={24} 
+                  color="#7C7B73" 
+                />
+              </TouchableOpacity>
+              
+              {showBreedDropdown && (
+                <View style={styles.dropdown}>
+                  <ScrollView>
+                    {catBreeds.map((breed) => (
+                      <TouchableOpacity
+                        key={breed}
+                        style={[
+                          styles.dropdownItem,
+                          newPet.breed === breed && styles.selectedDropdownItem
+                        ]}
+                        onPress={() => {
+                          if (breed === "Other") {
+                            setIsOtherBreed(true);
+                            setNewPet({...newPet, breed: ""});
+                          } else {
+                            setIsOtherBreed(false);
+                            setNewPet({...newPet, breed: breed});
+                          }
+                          setShowBreedDropdown(false);
+                        }}
+                      >
+                        {newPet.breed === breed && (
+                          <Ionicons name="checkmark" size={20} color="#7C7B73" style={styles.checkIcon} />
+                        )}
+                        <Text style={styles.dropdownItemText}>{breed}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+            </View>
+            
+            {isOtherBreed && (
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Enter breed"
+                value={newPet.breed}
+                onChangeText={(text) => setNewPet({...newPet, breed: text})}
+                maxLength={50}
+              />
+            )}
             
             <Text style={styles.modalLabel}>Weight (kg)</Text>
             <TextInput
@@ -517,13 +689,41 @@ const handleSaveNewPet = async () => {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Recognition Popup */}
+      <Modal
+        transparent
+        visible={showRecognitionPopup}
+        animationType="fade"
+        onRequestClose={() => setShowRecognitionPopup(false)}
+      >
+        <View style={styles.popupContainer}>
+          <View style={styles.popupContent}>
+            <Text style={styles.popupTitle}>Multiple Cats Detected</Text>
+            <Text style={styles.popupText}>
+              Would you like to start cat recognition training to help your feeder distinguish between your cats?
+            </Text>
+            <View style={styles.popupButtons}>
+              <TouchableOpacity style={styles.popupButton} onPress={() => setShowRecognitionPopup(false)}>
+                <Text style={styles.popupButtonText}>Later</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.popupButton, styles.popupButtonPrimary]}
+                onPress={handleStartRecognition}
+              >
+                <Text style={styles.popupButtonTextPrimary}>Start Recognition</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
       
       {/* Tab Bar */}
       <View style={styles.tabBar}>
         <TouchableOpacity style={styles.tabItem} onPress={() => navigation.navigate('SmartPetFeederScreen')}>
           <Ionicons name="home-outline" size={24} color="#aaa" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.tabItem} onPress={() => navigation.navigate('ScheduleScreen')}>
+        <TouchableOpacity style={styles.tabItem} onPress={() => navigation.navigate('ScheduleScreen', { catId: currentPet ? currentPet.id : null })}>
           <Ionicons name="calendar-outline" size={24} color="#aaa"/>
         </TouchableOpacity>
         <TouchableOpacity style={styles.tabItem} onPress={() => navigation.navigate('FeedingHistoryScreen')}>
@@ -550,7 +750,7 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: '#333',
-    paddingTop: 20,
+    paddingTop: 50,
   },
   content: {
     flex: 1,
@@ -830,6 +1030,132 @@ const styles = StyleSheet.create({
   activeTab: {
     borderTopWidth: 2,
     borderTopColor: '#FF3705',
+  },
+  popupContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  popupContent: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 24,
+    width: '85%',
+    maxWidth: 340,
+  },
+  popupTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  popupText: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  popupButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  popupButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginLeft: 8,
+  },
+  popupButtonPrimary: {
+    backgroundColor: '#FF3705',
+    borderRadius: 6,
+  },
+  popupButtonText: {
+    color: '#666',
+    fontSize: 16,
+  },
+  popupButtonTextPrimary: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  logoutButton: {
+    marginTop: 20,
+    marginHorizontal: 16,
+    padding: 16,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FF3705',
+    alignItems: 'center',
+  },
+  logoutButtonText: {
+    color: '#FF3705',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  dropdownContainer: {
+    position: 'relative',
+    marginBottom: 15,
+  },
+  dropdownButton: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: '#fff',
+  },
+  dropdownSelectedText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  dropdownPlaceholderText: {
+    fontSize: 16,
+    color: '#999',
+  },
+  dropdown: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    maxHeight: 200,
+    zIndex: 1000,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+      },
+      android: {
+        elevation: 5,
+      },
+    }),
+  },
+  dropdownItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  selectedDropdownItem: {
+    backgroundColor: '#f0f0f0',
+  },
+  dropdownItemText: {
+    fontSize: 16,
+    color: '#333',
+    flex: 1,
+  },
+  checkIcon: {
+    marginRight: 8,
   },
 });
 

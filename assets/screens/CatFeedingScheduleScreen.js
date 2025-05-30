@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -6,76 +6,26 @@ import {
   TouchableOpacity,
   ScrollView,
   SafeAreaView,
-  Modal,
-  TextInput,
+  Alert,
+  ActivityIndicator,
+  Platform
 } from 'react-native';
+import { useCat } from '../../contexts/CatContext';
+import axios from 'axios';
 
-const CatFeedingSchedule = ({ navigation }) => {
+const API_URL = Platform.select({
+  android: 'http://192.168.100.16:3333',
+  ios: 'http://localhost:3333',
+  default: 'http://localhost:3333'
+});
+
+const CatFeedingSchedule = ({ navigation, route }) => {
+  const { userToken } = useCat();
   const [portion, setPortion] = useState(150);
-  const [feedingTimesModalVisible, setFeedingTimesModalVisible] = useState(false);
-  const [selectedFeedingTimes, setSelectedFeedingTimes] = useState('Times of feeding per day');
-  const [firstFeedingTime, setFirstFeedingTime] = useState('07:00');
-  const [customFeedingTimes, setCustomFeedingTimes] = useState('');
-  const [showOtherInput, setShowOtherInput] = useState(false);
-  const customInputRef = useRef(null);
-
-  const feedingTimesOptions = [
-    'Other',
-    '1 time per day',
-    '3 times per day',
-    '5 times per day',
-  ];
-
-  const timeOptions = [
-    '06:00',
-    '06:30',
-    '07:00',
-    '07:30',
-    '08:00',
-  ];
-
-  const decreaseFeedingTime = () => {
-    const [hours, minutes] = firstFeedingTime.split(':').map(Number);
-    if (hours < 8 || (hours === 8 && minutes === 0)) {
-      setFirstFeedingTime('08:00');
-      return;
-    }
-    
-    let newHours = hours;
-    let newMinutes = minutes - 30;
-    
-    if (newMinutes < 0) {
-      newMinutes = 30;
-      newHours = newHours - 1;
-    }
-    
-    setFirstFeedingTime(`${newHours.toString().padStart(2, '0')}:${newMinutes.toString().padStart(2, '0')}`);
-  };
-
-  const increaseFeedingTime = () => {
-    const [hours, minutes] = firstFeedingTime.split(':').map(Number);
-    
-
-    if (hours < 8 || (hours === 8 && minutes === 0)) {
-      setFirstFeedingTime('08:30');
-      return;
-    }
-    
-    let newHours = hours;
-    let newMinutes = minutes + 30;
-    
-    if (newMinutes >= 60) {
-      newMinutes = 0;
-      newHours = newHours + 1;
-    }
-    
-    if (newHours > 12) {
-      newHours = 12;
-      newMinutes = 0;
-    }
-    
-    setFirstFeedingTime(`${newHours.toString().padStart(2, '0')}:${newMinutes.toString().padStart(2, '0')}`);
-  };
+  const [selectedTime, setSelectedTime] = useState('07:00');
+  const [loading, setLoading] = useState(false);
+  const deviceId = 'bc:f6:c1:98:4a:3a';
+  const selectedCat = route.params?.cat;
 
   const decreasePortion = () => {
     if (portion > 50) {
@@ -87,38 +37,92 @@ const CatFeedingSchedule = ({ navigation }) => {
     setPortion(portion + 10);
   };
 
-  const selectFeedingTimes = (option) => {
-    if (option === 'Other') {
-      setSelectedFeedingTimes('Other');
-      setShowOtherInput(true);
-      setFeedingTimesModalVisible(false);
-      setTimeout(() => {
-        if (customInputRef.current) {
-          customInputRef.current.focus();
+  const handleSaveSchedule = async () => {
+    if (!selectedCat) {
+      Alert.alert('Error', 'No cat selected');
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const response = await axios.post(
+        `${API_URL}/pet-feeder/${deviceId}/cats/${selectedCat.id}/schedule`,
+        {
+          time: selectedTime,
+          amount: portion
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${userToken}`,
+            'Content-Type': 'application/json'
+          }
         }
-      }, 100);
-    } else {
-      setSelectedFeedingTimes(option);
-      setShowOtherInput(false);
-      setFeedingTimesModalVisible(false);
+      );
+
+      if (response.data.success) {
+        Alert.alert(
+          'Success',
+          'Feeding schedule saved successfully!',
+          [
+            {
+              text: 'OK',
+              onPress: () => navigation.navigate('ScheduleScreen', { 
+                catId: selectedCat.id 
+              })
+            }
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('Error saving schedule:', error);
+      Alert.alert(
+        'Error',
+        error.response?.data?.message || 'Failed to save feeding schedule'
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
-  const isTimeAfter8 = () => {
-    const [hours, minutes] = firstFeedingTime.split(':').map(Number);
-    return hours > 8 || (hours === 8 && minutes > 0);
+  const decreaseTime = () => {
+    const [hours, minutes] = selectedTime.split(':').map(Number);
+    const totalMinutes = hours * 60 + minutes;
+    if (totalMinutes > 360) { // Don't go below 06:00
+      const newTotalMinutes = totalMinutes - 30;
+      const newHours = Math.floor(newTotalMinutes / 60);
+      const newMinutes = newTotalMinutes % 60;
+      setSelectedTime(
+        `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`
+      );
+    }
+  };
+
+  const increaseTime = () => {
+    const [hours, minutes] = selectedTime.split(':').map(Number);
+    const totalMinutes = hours * 60 + minutes;
+    if (totalMinutes < 1380) { // Don't go above 23:00
+      const newTotalMinutes = totalMinutes + 30;
+      const newHours = Math.floor(newTotalMinutes / 60);
+      const newMinutes = newTotalMinutes % 60;
+      setSelectedTime(
+        `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`
+      );
+    }
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <View style={styles.header}>
-          <Text style={styles.title}>Set feeding</Text>
-          <Text style={styles.subtitle}>Set your cat's feeding schedule</Text>
+          <Text style={styles.title}>Set feeding schedule</Text>
+          <Text style={styles.subtitle}>
+            Schedule daily feeding for {selectedCat?.name || 'your cat'}
+          </Text>
         </View>
         
-        <View style={styles.sectionFeed}>
-          <Text style={styles.sectionLabel}>Recommended portion</Text>
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Portion size</Text>
           <View style={styles.portionControlContainer}>
             <TouchableOpacity 
               style={styles.portionButton} 
@@ -141,93 +145,46 @@ const CatFeedingSchedule = ({ navigation }) => {
         </View>
 
         <View style={styles.section}>
-          <TouchableOpacity 
-            style={styles.dropdown}
-            onPress={() => setFeedingTimesModalVisible(true)}
-          >
-            <Text style={[styles.dropdownText, selectedFeedingTimes === 'Times of feeding per day' && styles.placeholderText]}>
-              {selectedFeedingTimes}
-            </Text>
-            <Text style={styles.dropdownIcon}>▼</Text>
-          </TouchableOpacity>
-          
-          {showOtherInput && (
-            <TextInput
-              ref={customInputRef}
-              style={styles.otherInput}
-              value={customFeedingTimes}
-              onChangeText={setCustomFeedingTimes}
-              placeholder="Enter custom feeding times"
-              keyboardType="number-pad"
-            />
-          )}
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Time of first feeding</Text>
-          <View style={styles.timeOptionsGrid}>
-            {timeOptions.map((time) => (
-              <TouchableOpacity
-                key={time}
-                style={[
-                  styles.timeOption,
-                  firstFeedingTime === time && styles.selectedTimeOption
-                ]}
-                onPress={() => setFirstFeedingTime(time)}
-              >
-                <Text style={[styles.timeText, firstFeedingTime === time && styles.selectedTimeText]}>
-                  {time}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          <Text style={styles.sectionLabel}>Feeding time</Text>
+          <View style={styles.portionControlContainer}>
+            <TouchableOpacity 
+              style={styles.portionButton} 
+              onPress={decreaseTime}
+            >
+              <Text style={styles.portionButtonText}>-</Text>
+            </TouchableOpacity>
             
-            {/* Adjustable time control for >08:00 */}
-            <View style={[
-              styles.timeOptionControl,
-              isTimeAfter8() && styles.selectedTimeOption
-            ]}>
-              <TouchableOpacity style={styles.timeControlButton} onPress={decreaseFeedingTime}>
-                <Text style={styles.timeControlButtonText}>-</Text>
-              </TouchableOpacity>
-              
-              <View style={styles.timeControlValue}>
-                <Text style={[
-                  styles.timeText, 
-                  isTimeAfter8() && styles.selectedTimeText
-                ]}>
-                  {isTimeAfter8() ? firstFeedingTime : '08:00'}
-                </Text>
-              </View>
-              
-              <TouchableOpacity style={styles.timeControlButton} onPress={increaseFeedingTime}>
-                <Text style={styles.timeControlButtonText}>+</Text>
-              </TouchableOpacity>
+            <View style={styles.portionValue}>
+              <Text style={styles.portionValueText}>{selectedTime}</Text>
             </View>
+            
+            <TouchableOpacity 
+              style={styles.portionButton} 
+              onPress={increaseTime}
+            >
+              <Text style={styles.portionButtonText}>+</Text>
+            </TouchableOpacity>
           </View>
         </View>
-
-        {/* Feeding Times Modal */}
-        {feedingTimesModalVisible && (
-          <View style={styles.dropdownMenu}>
-            {feedingTimesOptions.map((option, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.dropdownOption}
-                onPress={() => selectFeedingTimes(option)}
-              >
-                <Text style={styles.dropdownOptionText}>{option}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
 
         <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.skipButton} onPress={() => navigation.navigate('SmartPetFeederScreen')}>
+          <TouchableOpacity 
+            style={styles.skipButton} 
+            onPress={() => navigation.navigate('ScheduleScreen')}
+          >
             <Text style={styles.skipButtonText}>Skip</Text>
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.doneButton} onPress={() => navigation.navigate('SmartPetFeederScreen')}>
-            <Text style={styles.doneButtonText}>Done</Text>
+          <TouchableOpacity 
+            style={[styles.doneButton, loading && styles.doneButtonDisabled]} 
+            onPress={handleSaveSchedule}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.doneButtonText}>Save Schedule</Text>
+            )}
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -261,9 +218,6 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: 24,
     position: 'relative', 
-  },
-  sectionFeed: {
-    marginBottom: 30,
   },
   sectionLabel: {
     fontSize: 16,
@@ -300,117 +254,35 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#FF5722',
   },
-  dropdown: {
-    height: 56,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+  timeControlContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    padding: 8,
     backgroundColor: '#fff',
   },
-  dropdownText: {
-    fontSize: 16,
-    color: '#333',
-  },
-  placeholderText: {
-    color: '#888',
-  },
-  dropdownIcon: {
-    fontSize: 12,
-    color: '#888',
-  },
-  dropdownMenu: {
-    position: 'absolute',
-    top: 140, 
-    left: 20,
-    right: 20,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    zIndex: 10,
-  },
-  dropdownOption: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  dropdownOptionText: {
-    fontSize: 16,
-    color: '#666',
-  },
-  otherInput: {
-    height: 56,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    paddingHorizontal: 16,
-    marginTop: 8,
-    fontSize: 16,
-  },
-  timeOptionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  timeOption: {
-    width: '30%',
-    height: 56,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+  timeButton: {
+    width: 40,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
-    backgroundColor: '#fff',
   },
-  timeOptionControl: {
-    width: '30%',
-    height: 56,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    flexDirection: 'row',
+  timeButtonText: {
+    fontSize: 24,
+    color: '#888',
+  },
+  timeValueContainer: {
+    width: 80,
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-    paddingHorizontal: 6,
-    backgroundColor: '#fff',
+    justifyContent: 'center',
   },
-  selectedTimeOption: {
-    borderColor: '#FF5722',
-  },
-  timeText: {
-    fontSize: 16,
-    color: '#333',
-  },
-  selectedTimeText: {
-    color: '#FF5722',
+  timeValueText: {
+    fontSize: 24,
     fontWeight: 'bold',
-  },
-  timeControlButton: {
-    width: 24,
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  timeControlButtonText: {
-    fontSize: 18,
-    color: '#888',
-  },
-  timeControlValue: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    color: '#FF5722',
   },
   buttonContainer: {
     flexDirection: 'row',
@@ -440,6 +312,9 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  doneButtonDisabled: {
+    backgroundColor: '#ccc',
   },
 });
 

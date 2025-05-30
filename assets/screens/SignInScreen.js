@@ -20,7 +20,7 @@ const SignInScreen = ({ navigation }) => {
   const [isLoading, setIsLoading] = useState(false);
 
   const API_URL = Platform.select({
-    android: 'http://10.0.2.2:3333/auth/login',
+    android: 'http://192.168.100.16:3333/auth/login',
     ios: 'http://localhost:3333/auth/login',
     default: 'http://localhost:3333/auth/login'
   });
